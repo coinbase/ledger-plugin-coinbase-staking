@@ -28,9 +28,13 @@ void handle_provide_parameter(ethPluginProvideParameter_t *msg) {
             msg->result = ETH_PLUGIN_RESULT_ERROR;
             break;
         case KILN_V2_REQUEST_EXIT:
+            handle_v2_request_exit(msg, context);
+            break;
         case KILN_V2_MULTICLAIM:
+            handle_v2_multiclaim(msg, context);
+            break;
         case KILN_V2_CLAIM:
-            msg->result = ETH_PLUGIN_RESULT_OK;
+            handle_v2_claim(msg, context);
             break;
 
         default:

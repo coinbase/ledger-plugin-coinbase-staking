@@ -51,9 +51,15 @@ void handle_init_contract(ethPluginInitContract_t *msg) {
 
     switch (context->selectorIndex) {
         case KILN_V2_STAKE:
+            break;
         case KILN_V2_REQUEST_EXIT:
+            context->next_param = V2_REQUEST_EXIT_AMOUNT;
+            break;
         case KILN_V2_MULTICLAIM:
+            context->next_param = V2_MULTICLAIM_EXIT_QUEUES_OFFSET;
+            break;
         case KILN_V2_CLAIM:
+            context->next_param = V2_CLAIM_TICKET_IDS_OFFSET;
             break;
 
         default:

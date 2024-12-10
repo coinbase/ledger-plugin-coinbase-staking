@@ -18,7 +18,10 @@ nano_models.forEach(function (model) {
       const contract = new ethers.Contract(contractAddr, abi);
 
       const { data } = await contract.populateTransaction.multiClaim(
-        ['0x2e3956e1ee8b44ab826556770f69e3b9ca04a2a7'],
+        [
+          '0x86358F7B33b599c484e0335B8Ee4f7f7f92d8b60',
+          '0x8d6Fd650500f82c7D978a440348e5a9b886943bF',
+        ],
         [
           [42, 47],
           [150, 2],
