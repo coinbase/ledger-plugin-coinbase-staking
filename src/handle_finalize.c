@@ -26,6 +26,11 @@ void handle_finalize(ethPluginFinalize_t *msg) {
         case KILN_V2_MULTICLAIM:
         case KILN_V2_CLAIM:
             msg->numScreens = 1;
+            if (context->next_param != 0) {
+                PRINTF("Parser did not complete\n");
+                msg->result = ETH_PLUGIN_RESULT_ERROR;
+                return;
+            }
             msg->result = ETH_PLUGIN_RESULT_OK;
             break;
 

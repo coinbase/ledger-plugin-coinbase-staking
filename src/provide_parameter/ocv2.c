@@ -72,10 +72,22 @@ void handle_v2_claim(ethPluginProvideParameter_t *msg, context_t *context) {
     v2_claim_t *params = &context->param_data.v2_claim;
 
     switch (context->next_param) {
-        case V2_CLAIM_TICKET_IDS_OFFSET:
+        case V2_CLAIM_TICKET_IDS_OFFSET: {
+            uint16_t offset;
+            U2BE_from_parameter(msg->parameter, &offset);
+            if (offset != PARAMETER_LENGTH * 3) {
+                PRINTF("Malformed calldata, unexpected parameter offset %d != %d\n",
+                       offset,
+                       PARAMETER_LENGTH);
+                msg->result = ETH_PLUGIN_RESULT_ERROR;
+                return;
+            }
             context->next_param = V2_CLAIM_CASK_IDS_OFFSET;
             break;
+        }
         case V2_CLAIM_CASK_IDS_OFFSET:
+            U2BE_from_parameter(msg->parameter, &params->cask_ids_offset);
+            params->cask_ids_offset += SELECTOR_SIZE;
             context->next_param = V2_CLAIM_MAX_CLAIM_DEPTH;
             break;
         case V2_CLAIM_MAX_CLAIM_DEPTH:
@@ -83,20 +95,39 @@ void handle_v2_claim(ethPluginProvideParameter_t *msg, context_t *context) {
             break;
         case V2_CLAIM_TICKET_IDS_LENGTH:
             U2BE_from_parameter(msg->parameter, &params->current_item_count);
-            context->next_param = V2_CLAIM_TICKET_IDS__ITEMS;
+            if (params->current_item_count == 0) {
+                context->next_param = V2_CLAIM_CASK_IDS_LENGTH;
+            } else {
+                context->next_param = V2_CLAIM_TICKET_IDS__ITEMS;
+            }
             break;
         case V2_CLAIM_TICKET_IDS__ITEMS:
-            params->current_item_count -= 1;
+            if (params->current_item_count > 0) {
+                params->current_item_count -= 1;
+            }
             if (params->current_item_count == 0) {
                 context->next_param = V2_CLAIM_CASK_IDS_LENGTH;
             }
             break;
         case V2_CLAIM_CASK_IDS_LENGTH:
+            if (msg->parameterOffset != params->cask_ids_offset) {
+                PRINTF("Malformed calldata, unexpected parameter offset %d != %d\n",
+                       msg->parameterOffset,
+                       params->cask_ids_offset);
+                msg->result = ETH_PLUGIN_RESULT_ERROR;
+                return;
+            }
             U2BE_from_parameter(msg->parameter, &params->current_item_count);
-            context->next_param = V2_CLAIM_CASK_IDS__ITEMS;
+            if (params->current_item_count == 0) {
+                context->next_param = V2_CLAIM_UNEXPECTED_PARAMETER;
+            } else {
+                context->next_param = V2_CLAIM_CASK_IDS__ITEMS;
+            }
             break;
         case V2_CLAIM_CASK_IDS__ITEMS:
-            params->current_item_count -= 1;
+            if (params->current_item_count > 0) {
+                params->current_item_count -= 1;
+            }
             if (params->current_item_count == 0) {
                 context->next_param = V2_CLAIM_UNEXPECTED_PARAMETER;
             }
@@ -150,23 +181,41 @@ void handle_v2_multiclaim(ethPluginProvideParameter_t *msg, context_t *context) 
     v2_multiclaim_t *params = &context->param_data.v2_multiclaim;
 
     switch (context->next_param) {
-        case V2_MULTICLAIM_EXIT_QUEUES_OFFSET:
+        case V2_MULTICLAIM_EXIT_QUEUES_OFFSET: {
+            uint16_t offset;
+            U2BE_from_parameter(msg->parameter, &offset);
+            if (offset != PARAMETER_LENGTH * 3) {
+                PRINTF("Malformed calldata, unexpected exitqueues parameter offset %d != %d\n",
+                       offset,
+                       PARAMETER_LENGTH);
+                msg->result = ETH_PLUGIN_RESULT_ERROR;
+                return;
+            }
             context->next_param = V2_MULTICLAIM_TICKET_IDS_OFFSET;
             break;
+        }
         case V2_MULTICLAIM_TICKET_IDS_OFFSET:
+            U2BE_from_parameter(msg->parameter, &params->ticket_ids_offset);
+            params->ticket_ids_offset += SELECTOR_SIZE;
             context->next_param = V2_MULTICLAIM_CASK_IDS_OFFSET;
             break;
         case V2_MULTICLAIM_CASK_IDS_OFFSET:
+            U2BE_from_parameter(msg->parameter, &params->cask_ids_offset);
+            params->cask_ids_offset += SELECTOR_SIZE;
             context->next_param = V2_MULTICLAIM_EXIT_QUEUES_LENGTH;
             break;
         case V2_MULTICLAIM_EXIT_QUEUES_LENGTH:
             U2BE_from_parameter(msg->parameter, &params->current_item_count);
-            context->next_param = V2_MULTICLAIM_EXIT_QUEUES__ITEMS;
+            if (params->current_item_count == 0) {
+                context->next_param = V2_MULTICLAIM_TICKETIDS_LENGTH;
+            } else {
+                context->next_param = V2_MULTICLAIM_EXIT_QUEUES__ITEMS;
+            }
             break;
         case V2_MULTICLAIM_EXIT_QUEUES__ITEMS: {
             uint8_t buffer[ADDRESS_LENGTH];
             copy_address(buffer, msg->parameter, sizeof(buffer));
-            char address_buffer[ADDRESS_STR_LEN];
+            char address_buffer[ADDRESS_STR_LEN + 1];
             getEthDisplayableAddress(buffer, address_buffer, sizeof(address_buffer), 0);
             // we add a check to make sure we know the exit queue addresses
             // that will be called in the multiclaim tx
@@ -183,57 +232,276 @@ void handle_v2_multiclaim(ethPluginProvideParameter_t *msg, context_t *context) 
                 return;
             }
 
-            params->current_item_count -= 1;
+            if (params->current_item_count > 0) {
+                params->current_item_count -= 1;
+            }
             if (params->current_item_count == 0) {
                 context->next_param = V2_MULTICLAIM_TICKETIDS_LENGTH;
             }
             break;
         }
         case V2_MULTICLAIM_TICKETIDS_LENGTH:
+            if (msg->parameterOffset != params->ticket_ids_offset) {
+                PRINTF("Malformed calldata, unexpected ticketids[X][] parameter offset %d != %d\n",
+                       msg->parameterOffset,
+                       params->ticket_ids_offset);
+                msg->result = ETH_PLUGIN_RESULT_ERROR;
+                return;
+            }
+
+            memset(params->checksum_preview, 0, sizeof(params->checksum_preview));
+            memset(params->checksum_value, 0, sizeof(params->checksum_value));
+            params->cached_offset = 0;
+
             U2BE_from_parameter(msg->parameter, &params->parent_item_count);
             params->current_item_count = params->parent_item_count;
-            context->next_param = V2_MULTICLAIM_TICKETIDS__OFFSET_ITEMS;
+            if (params->current_item_count == 0) {
+                context->next_param = V2_MULTICLAIM_CASKIDS_LENGTH;
+            } else {
+                context->next_param = V2_MULTICLAIM_TICKETIDS__OFFSET_ITEMS;
+            }
             break;
-        case V2_MULTICLAIM_TICKETIDS__OFFSET_ITEMS:
-            params->current_item_count -= 1;
+        // ********************************************************************
+        // TICKETIDS[][]
+        // ********************************************************************
+        case V2_MULTICLAIM_TICKETIDS__OFFSET_ITEMS: {
+            uint16_t offset;
+            U2BE_from_parameter(msg->parameter, &offset);
+            // We have limited size on the context and can't store all the offset values
+            // of the ticketids subarrays. So we compute their checksum and expect to
+            // be able to recompute it using the offset of the parsed structures later.
+            // _preview will be equal to _value at the end of the parsing if everything is fine
+            checksum_offset_params_t h_params;
+            memset(&h_params, 0, sizeof(h_params));
+            memcpy(&h_params.prev_checksum,
+                   &(params->checksum_preview),
+                   sizeof(h_params.prev_checksum));
+
+            // if we are on the first element of the array, we save the offset, which all
+            // received offset values will be based on for checksum computation
+            if (params->cached_offset == 0) {
+                params->cached_offset = msg->parameterOffset;
+            }
+
+            // we hash the previous checksum with the offset of the beginning of the structure.
+            h_params.new_offset = offset + params->cached_offset;
+            PRINTF("V2_MULTICLAIM_TICKETIDS__OFFSET_ITEMS_PREVIEW: %d\n", h_params.new_offset);
+
+            if (cx_keccak_256_hash((void *) &h_params,
+                                   sizeof(h_params),
+                                   params->checksum_preview) != CX_OK) {
+                PRINTF("unable to compute keccak hash\n");
+                msg->result = ETH_PLUGIN_RESULT_ERROR;
+                return;
+            }
+
+            if (params->current_item_count > 0) {
+                params->current_item_count -= 1;
+            }
             if (params->current_item_count == 0) {
                 context->next_param = V2_MULTICLAIM_TICKETIDS__ITEM_LENGTH;
             }
             break;
-        case V2_MULTICLAIM_TICKETIDS__ITEM_LENGTH:
+        }
+        // ********************************************************************
+        // TICKETIDS[][]
+        // .          ^
+        // ********************************************************************
+        case V2_MULTICLAIM_TICKETIDS__ITEM_LENGTH: {
+            // here we compute the offset of the ticketIds subarray checksum
+            checksum_offset_params_t h_params;
+            memset(&h_params, 0, sizeof(h_params));
+            memcpy(&h_params.prev_checksum,
+                   &(params->checksum_value),
+                   sizeof(h_params.prev_checksum));
+
+            // we hash the previous checksum with the offset of the beginning of the structure.
+            h_params.new_offset = msg->parameterOffset;
+            PRINTF("V2_MULTICLAIM_TICKETIDS__OFFSET_ITEMS_VALUE: %d\n", h_params.new_offset);
+
+            if (cx_keccak_256_hash((void *) &h_params, sizeof(h_params), params->checksum_value) !=
+                CX_OK) {
+                PRINTF("unable to compute keccak hash\n");
+                msg->result = ETH_PLUGIN_RESULT_ERROR;
+                return;
+            }
+
             U2BE_from_parameter(msg->parameter, &params->current_item_count);
-            context->next_param = V2_MULTICLAIM_TICKETIDS__ITEM__ITEMS;
-            break;
-        case V2_MULTICLAIM_TICKETIDS__ITEM__ITEMS:
-            params->current_item_count -= 1;
             if (params->current_item_count == 0) {
-                params->parent_item_count -= 1;
+                if (params->parent_item_count > 0) {
+                    params->parent_item_count -= 1;
+                }
                 if (params->parent_item_count == 0) {
+                    // we check the checksums
+                    if (memcmp(params->checksum_preview,
+                               params->checksum_value,
+                               sizeof(params->checksum_preview)) != 0) {
+                        PRINTF("Tokenids[][] checksums do not match\n");
+                        msg->result = ETH_PLUGIN_RESULT_ERROR;
+                        return;
+                    }
+
                     context->next_param = V2_MULTICLAIM_CASKIDS_LENGTH;
+                }
+            } else {
+                context->next_param = V2_MULTICLAIM_TICKETIDS__ITEM__ITEMS;
+            }
+            break;
+        }
+        case V2_MULTICLAIM_TICKETIDS__ITEM__ITEMS:
+            if (params->current_item_count > 0) {
+                params->current_item_count -= 1;
+            }
+            if (params->current_item_count == 0) {
+                if (params->parent_item_count > 0) {
+                    params->parent_item_count -= 1;
+                }
+                if (params->parent_item_count == 0) {
+                    // we check the checksums
+                    if (memcmp(params->checksum_preview,
+                               params->checksum_value,
+                               sizeof(params->checksum_preview)) != 0) {
+                        PRINTF("Tokenids[][] checksums do not match\n");
+                        msg->result = ETH_PLUGIN_RESULT_ERROR;
+                        return;
+                    }
+
+                    context->next_param = V2_MULTICLAIM_CASKIDS_LENGTH;
+
                 } else {
                     context->next_param = V2_MULTICLAIM_TICKETIDS__ITEM_LENGTH;
                 }
             }
             break;
+        // ********************************************************************
+        // CASKIDS[][]
+        // ********************************************************************
         case V2_MULTICLAIM_CASKIDS_LENGTH:
+            if (msg->parameterOffset != params->cask_ids_offset) {
+                PRINTF("Malformed calldata, unexpected caskids parameter offset %d != %d\n",
+                       msg->parameterOffset,
+                       params->cask_ids_offset);
+                msg->result = ETH_PLUGIN_RESULT_ERROR;
+                return;
+            }
+
+            memset(params->checksum_preview, 0, sizeof(params->checksum_preview));
+            memset(params->checksum_value, 0, sizeof(params->checksum_value));
+            params->cached_offset = 0;
+
             U2BE_from_parameter(msg->parameter, &params->parent_item_count);
             params->current_item_count = params->parent_item_count;
-            context->next_param = V2_MULTICLAIM_CASKIDS__OFFSET_ITEMS;
+            if (params->current_item_count == 0) {
+                context->next_param = V2_MULTICLAIM_UNEXPECTED_PARAMETER;
+            } else {
+                context->next_param = V2_MULTICLAIM_CASKIDS__OFFSET_ITEMS;
+            }
             break;
-        case V2_MULTICLAIM_CASKIDS__OFFSET_ITEMS:
-            params->current_item_count -= 1;
+        case V2_MULTICLAIM_CASKIDS__OFFSET_ITEMS: {
+            uint16_t offset;
+            U2BE_from_parameter(msg->parameter, &offset);
+            // We have limited size on the context and can't store all the offset values
+            // of the caskids subarrays. So we compute their checksum and expect to
+            // be able to recompute it using the offset of the parsed structures later.
+            // _preview will be equal to _value at the end of the parsing if everything is fine
+            checksum_offset_params_t h_params;
+            memset(&h_params, 0, sizeof(h_params));
+            memcpy(&h_params.prev_checksum,
+                   &(params->checksum_preview),
+                   sizeof(h_params.prev_checksum));
+
+            // if we are on the first element of the array, we save the offset, which all
+            // received offset values will be based on for checksum computation
+            if (params->cached_offset == 0) {
+                params->cached_offset = msg->parameterOffset;
+            }
+
+            // we hash the previous checksum with the offset of the beginning of the structure.
+            h_params.new_offset = offset + params->cached_offset;
+            PRINTF("V2_MULTICLAIM_CASKIDS__OFFSET_ITEMS_PREVIEW: %d\n", h_params.new_offset);
+
+            if (cx_keccak_256_hash((void *) &h_params,
+                                   sizeof(h_params),
+                                   params->checksum_preview) != CX_OK) {
+                PRINTF("unable to compute keccak hash\n");
+                msg->result = ETH_PLUGIN_RESULT_ERROR;
+                return;
+            }
+
+            if (params->current_item_count > 0) {
+                params->current_item_count -= 1;
+            }
             if (params->current_item_count == 0) {
                 context->next_param = V2_MULTICLAIM_CASKIDS__ITEM_LENGTH;
             }
             break;
-        case V2_MULTICLAIM_CASKIDS__ITEM_LENGTH:
+        }
+        // ********************************************************************
+        // CASKIDS[][]
+        // .         ^
+        // ********************************************************************
+        case V2_MULTICLAIM_CASKIDS__ITEM_LENGTH: {
+            // here we compute the offset of the caskIds subarray checksum
+            checksum_offset_params_t h_params;
+
+            memset(&h_params, 0, sizeof(h_params));
+            memcpy(&h_params.prev_checksum,
+                   &(params->checksum_value),
+                   sizeof(h_params.prev_checksum));
+
+            // we hash the previous checksum with the offset of the beginning of the structure.
+            h_params.new_offset = msg->parameterOffset;
+            PRINTF("V2_MULTICLAIM_CASKIDS__OFFSET_ITEMS_VALUE: %d\n", h_params.new_offset);
+
+            if (cx_keccak_256_hash((void *) &h_params, sizeof(h_params), params->checksum_value) !=
+                CX_OK) {
+                PRINTF("unable to compute keccak hash\n");
+                msg->result = ETH_PLUGIN_RESULT_ERROR;
+                return;
+            }
+
             U2BE_from_parameter(msg->parameter, &params->current_item_count);
-            context->next_param = V2_MULTICLAIM_CASKIDS__ITEM__ITEMS;
-            break;
-        case V2_MULTICLAIM_CASKIDS__ITEM__ITEMS:
-            params->current_item_count -= 1;
             if (params->current_item_count == 0) {
+                if (params->parent_item_count > 0) {
+                    params->parent_item_count -= 1;
+                }
+
                 if (params->parent_item_count == 0) {
+                    // we check the checksums
+                    if (memcmp(params->checksum_preview,
+                               params->checksum_value,
+                               sizeof(params->checksum_preview)) != 0) {
+                        PRINTF("Caskids[][] checksums do not match\n");
+                        msg->result = ETH_PLUGIN_RESULT_ERROR;
+                        return;
+                    }
+
+                    context->next_param = V2_MULTICLAIM_UNEXPECTED_PARAMETER;
+                }
+            } else {
+                context->next_param = V2_MULTICLAIM_CASKIDS__ITEM__ITEMS;
+            }
+            break;
+        }
+        case V2_MULTICLAIM_CASKIDS__ITEM__ITEMS:
+            if (params->current_item_count > 0) {
+                params->current_item_count -= 1;
+            }
+            if (params->current_item_count == 0) {
+                if (params->parent_item_count > 0) {
+                    params->parent_item_count -= 1;
+                }
+
+                if (params->parent_item_count == 0) {
+                    // we check the checksums
+                    if (memcmp(params->checksum_preview,
+                               params->checksum_value,
+                               sizeof(params->checksum_preview)) != 0) {
+                        PRINTF("Caskids[][] checksums do not match\n");
+                        msg->result = ETH_PLUGIN_RESULT_ERROR;
+                        return;
+                    }
+
                     context->next_param = V2_MULTICLAIM_UNEXPECTED_PARAMETER;
                 } else {
                     context->next_param = V2_MULTICLAIM_CASKIDS__ITEM_LENGTH;
