@@ -1,6 +1,6 @@
 [submodule "ethereum-plugin-sdk"]
 	path = ethereum-plugin-sdk
-	url = git@github.com:LedgerHQ/ethereum-plugin-sdk.git
+	url = https://github.com/LedgerHQ/ethereum-plugin-sdk
 [submodule "app-ethereum"]
 	path = app-ethereum
-	url = git@github.com:LedgerHQ/app-ethereum.git
+	url = https://github.com/LedgerHQ/app-ethereum
